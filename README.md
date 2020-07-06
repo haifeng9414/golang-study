@@ -92,7 +92,7 @@ func main() {
 数组，不管有多长，都会完整复制，并传递给函数。可以将函数参数由数组改为数组指针（如`func foo(array*[1e6]int)`）从而避免不必要的复制，但是
 也要注意函数内对数组的修改会反映在
 传入的数组指针对应的数组上。
-- 使用切片能更好的解决上面的问题，切片有3个属性，分别是：指向底层数组的指针、切片访问的元素的个数（即长度）和切片允许增长到的元素个数（即容
+- 使用切片能更好的解决上面的问题，在函数间传递切片只会复制切片的属性，不会复制切片的底层数组（无论底层数组多大，切片大小都是24个字节）。切片有3个属性，分别是：指向底层数组的指针、切片访问的元素的个数（即长度）和切片允许增长到的元素个数（即容
 量）。和数组不一样的地方就是，切片在赋值时会共享底层数组：
 ```go
 func main() {
@@ -275,3 +275,80 @@ func main() {
     */
 }
 ```
+- 切片、map、函数具有引用语义，不能用于==比较，而map的key要求能够进行==比较，所以这些类型不能用作map的key。另外需要注意的是，如果数组的
+元素类型为切片、map或函数，或者某个结构化类型包含切片、map或函数的属性，则也不能用于==比较，所以也不能作为map的key
+- map和切片一样，在函数间传递时不会创建一个map的副本，而是创建一个map的引用
+- 如果使用类型的值作为方法的接收者，则在调用方法时，方法会接收到一个类型值的副本，如果使用类型的指针作为方法的接收者，则方法接收到的是指针
+的副本，所以可以通过指针修改类型的值，如果类型的值复制代价很大，则应该避免使用类型的值作为方法的接收者：
+```go
+type User struct {
+	username string
+	password string
+}
+
+func (u User) test1() { // 类型的值作为接收者
+	u.username = "test1"
+}
+
+func (u *User) test2() { // 类型的指针作为接收者
+	u.username = "test2"
+}
+
+func main() {
+	u := User{"dhf", "pwd"}
+	fmt.Println(u) // 输出：{dhf pwd}
+	
+	u.test1()
+	fmt.Println(u) // 输出：{dhf pwd}，没有被test1方法修改
+	
+	u.test2()
+	fmt.Println(u) // 输出：{dhf pwd}，被test2方法修改了
+}
+```
+- 如果类型的基础类型是引用类型，则使用类型的值作为方法接收者或者传递类型的值到函数，复制的也是引用：
+```go
+type Demo []string // 基础类型是切片
+
+func (d Demo) test1() { // 使用类型的值作为方法接收者
+	d[0] = "test1"
+}
+
+func test2(d Demo) { // 使用类型的值作为函数参数
+	d[1] = "test2"
+}
+
+func main() {
+	d := Demo{"1", "2"}
+
+	fmt.Println(d)
+	d.test1()
+	test2(d)
+	fmt.Println(d) // 值被改变了
+}
+```
+- 一般情况下使用类型的值还是类型的指针作为方法接收者或者函数参数，取决于是否想要方法或函数能够对类型的值直接做修改。如果不想要修改，则应该使用
+类型的值作为方法接收者或者函数参数，这样方法或函数操作的是类型的值的副本。如果想要被修改，则应该使用类型的指针。
+
+如果单纯为了效率考虑，可以使用类型的指针避免类型的值被不必要的复制，如果类型的值可能包含一个大数组。
+
+有些类型不能被安全的复制，同时也不允许修改，则可以使用指针并且不公开属性，如标准库中的File：
+```go
+type File struct {
+	*file // 内嵌类型
+}
+
+type file struct {
+	pfd         poll.FD
+	name        string
+	dirinfo     *dirInfo // nil unless directory being read
+	nonblock    bool     // whether we set nonblocking mode
+	stdoutOrErr bool     // whether this is stdout or stderr
+	appendMode  bool     // whether file is opened for appending
+}
+```
+
+File类型的实际类型是file，使用指针可以使得File作为函数参数时复制的只是指针的值，同时不公开file属性，使得客户端无法修改file类型的属性。
+
+实际上使用值接收者还是指针接收者，不应该只由方法或函数是否修改了接收到的值来决定，应该基于类型的本质。如果类型的值可以被安全的复制，如时间
+`time.Time`、数字`int64`等，则应该使用值接收者；如果类型的值不能被安全的复制，如上面的`os.File`，则即使方法或者函数没有修改类型的值，
+也应该使用指针。
