@@ -2,11 +2,12 @@ package main
 
 import (
 	"fmt"
-	"os"
+	"golang-study/demo"
 )
 
 func main() {
-	file := os.File{}
-
-	fmt.Println(file)
+	ad := demo.Admin{}
+	ad.Name = "dhf"
+	ad.Email = "dhf@demo.com"
+	fmt.Println(ad.Name, ad.Email)
 }
