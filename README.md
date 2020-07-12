@@ -5,7 +5,24 @@ Go语言学习笔记
 - 模块被导入时会执行该模块下所有代码文件的init函数，main包下也可以有init函数，init函数先于main函数执行。
 - 如果用`var xxx type`的形式声明一个变量，则变量会被初始化为零值；如果有一个确切的非零值用于初始化变量，或者想要使用函数返回值初始化变量，
 则应该使用简化变量声明运算符，即 `xxx := something`。
-- channel、map、切片都是引用类型，初始化的零值是nil
+- channel、map、切片、指针、函数变量和接口变量都是引用类型，初始化的零值是nil：
+```go
+func main() {
+	var a *int
+	var b []int
+	var c map[string]int
+	var d chan int
+	var e func(string) int
+	var f error // error是接口，接口类型只有函数，所以不应该作为值类型
+
+	fmt.Println(a == nil) // 输出：true
+	fmt.Println(b == nil) // 输出：true
+	fmt.Println(c == nil) // 输出：true
+	fmt.Println(d == nil) // 输出：true
+	fmt.Println(e == nil) // 输出：true
+	fmt.Println(f == nil) // 输出：true
+}
+```
 - Go中所有变量都是值传递，指针变量的值是其所指向的内存地址，传递指针变量时传递的就是这个内存地址
 - 下面的代码会输出10个11：
 ```go
@@ -131,6 +148,27 @@ func main() {
 	fmt.Println(slice2) // 输出：[1]
 	slice3 = append(slice3, 1) // 可以安全的append
 	fmt.Println(slice3) // 输出：[1]
+}
+```
+- 尽管如上所述，nil切片和空切片很相似，但是也还是有两个需要注意的不同点，一个是json序列化，一个是`reflect.DeepEqual`的结果：
+```go
+type Res struct {
+	Data []string
+}
+
+func main() {
+	var nilSlice []string
+	emptySlice := make([]string, 0)
+
+	// 使用json序列化
+	res, _ := json.Marshal(Res{Data: nilSlice})
+	res2, _ := json.Marshal(Res{Data: emptySlice})
+
+	fmt.Println(string(res))  // 输出：{"Data":null}
+	fmt.Println(string(res2)) // 输出：{"Data":[]}
+
+	fmt.Println(reflect.DeepEqual(nilSlice, emptySlice)) // 输出：false
+	fmt.Printf("Got: %+v, Want: %+v\n", nilSlice, emptySlice) // 输出：Got: [], Want: []，DeepEqual为false，但是打印时又看不出差别，出问题时可能影响问题的定位
 }
 ```
 - 切片和数组最大的不同在于，切片可以通过创建一个新的切片将底层的数组元素共享出去，而数组的赋值操作是复制整个数组的元素，不过也可以通过一个
@@ -277,6 +315,32 @@ func main() {
 ```
 - 切片、map、函数具有引用语义，不能用于==比较，而map的key要求能够进行==比较，所以这些类型不能用作map的key。另外需要注意的是，如果数组的
 元素类型为切片、map或函数，或者某个结构化类型包含切片、map或函数的属性，则也不能用于==比较，所以也不能作为map的key
+- 接口类型是可以比较的。可以将接口类型作为map的key或者执行==比较，接口类型执行==操作的返回值取决于两边接口类型是否都是nil或者他们的动态类
+型相同并且动态值进行==操作也相同。接口类型的比较不一定是安全的，其它类型要么是安全的可比较类型（如基本类型和指针）要么是完全不可比较的类
+型（如切片，映射类型，和函数），在比较接口值或者包含了接口值的聚合类型时，如果其动态类型是不可比较的，则执行==操作是会引发panic：
+```go
+type Demo struct {
+	name string
+}
+
+func main() {
+	var x interface{} = []int{1, 2, 3}
+	var y interface{}
+	// panic: runtime error: comparing uncomparable type []int，x的动态类型为切片，不可比较
+	//fmt.Println(x == x)
+
+	x = nil
+	fmt.Println(x == y) // 输出：true，x和y都是nil
+
+	x = Demo{"x"}
+	y = Demo{"x"}
+	fmt.Println(x == y) // 输出：true，x和y的动态类型相同，动态类型的值==结果相同
+
+	x = Demo{"x"}
+	y = Demo{"y"}
+	fmt.Println(x == y) // 输出：false
+}
+```
 - map和切片一样，在函数间传递时不会创建一个map的副本，而是创建一个map的引用
 - 如果使用类型的值作为方法的接收者，则在调用方法时，方法会接收到一个类型值的副本，如果使用类型的指针作为方法的接收者，则方法接收到的是指针
 的副本，所以可以通过指针修改类型的值，如果类型的值复制代价很大，则应该避免使用类型的值作为方法的接收者：
@@ -376,6 +440,34 @@ func main() {
 	test(&d) // 只有类型的指针才能作为notifier接口的实现类
 
 	d.notify() // 类型的值不能直接调用以类型的指针作为接收者的方法，这里是因为golang帮忙转成了(&d).notify()
+}
+```
+- 方法的接受者只能是类型的值或者类型的指针，为了避免歧义，如果一个类型本身是一个指针的话，是不允许作为方法的接收者的：
+```go
+type P *int // 类型本身是个指针
+
+// invalid receiver type P (P is a pointer type)
+//func (p P) test() {
+//
+//}
+
+type Q int
+
+func (p Q) test1() {}
+func (p *Q) test2() {}
+```
+- 类型的指针如果是nil，也可以进行方法调用，这一点需要注意：
+```go
+type Demo struct {
+}
+
+func (d *Demo) test() {
+	fmt.Println(d == nil)
+}
+
+func main() {
+	var d *Demo
+	d.test() // 输出：true
 }
 ```
 - 可以通过嵌入类型实现类型的复用，已有的类型可以被嵌入到新的类型，已有类型称为内部类型，新的类型称为外部类型。内部类型的标识符会提升到外部
@@ -480,3 +572,4 @@ func main() {
 	fmt.Println(ad.Name, ad.Email)
 }
 ```
+- 通道在不使用后一定要记得close
