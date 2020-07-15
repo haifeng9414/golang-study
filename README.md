@@ -341,6 +341,37 @@ func main() {
 	fmt.Println(x == y) // 输出：false
 }
 ```
+- 一个包含nil指针的接口不是nil接口，下面的代码在debug为true时可以正常执行，但是如果debug为false时会panic，函数f已经对参数out作为nil判
+断，但是并没有起作用，原因是debug为false时，buf为nil，`*bytes.Buffer`实现了`io.Writer`接口，所以可以被传入f函数，此时参数out被赋值为
+一个`*bytes.Buffer`的空指针，即out接口的动态类型为`*bytes.Buffer`，动态值为nil，这个时候out是一个非空接口：
+```go
+const debug = false
+
+func main() {
+	var buf *bytes.Buffer
+	if debug {
+		buf = new(bytes.Buffer)
+	}
+	f(buf)
+}
+
+func f(out io.Writer) {
+	if out != nil {
+		out.Write([]byte("done!\n")) // panic: runtime error: invalid memory address or nil pointer dereference
+	}
+}
+```
+
+上面的问题的解决方案是在main函数中声明buf为io.Writer，这样在debug为false时，buf为nil接口，传入函数f时out参数被赋值为nil接口：
+```go
+func main() {
+	var buf io.Writer
+	if debug {
+		buf = new(bytes.Buffer)
+	}
+	f(buf) // OK
+}
+```
 - map和切片一样，在函数间传递时不会创建一个map的副本，而是创建一个map的引用
 - 如果使用类型的值作为方法的接收者，则在调用方法时，方法会接收到一个类型值的副本，如果使用类型的指针作为方法的接收者，则方法接收到的是指针
 的副本，所以可以通过指针修改类型的值，如果类型的值复制代价很大，则应该避免使用类型的值作为方法的接收者：
@@ -573,3 +604,227 @@ func main() {
 }
 ```
 - 通道在不使用后一定要记得close
+- `reflect.TypeOf`方法返回`reflect.Type`，表示传入的参数的动态类型的接口值，并且总是表示具体的类型：
+```go
+func main() {
+	t := reflect.TypeOf(3) // TypeOf方法返回reflect.Type，表示传入的参数的动态类型的接口值
+	fmt.Println(t.String()) // "int"
+	fmt.Println(t) // "int"
+
+    var w io.Writer = os.Stdout
+	fmt.Println(reflect.TypeOf(w)) // 输出："*os.File"，TypeOf方法总是返回具体的类型
+}
+```
+- 当打印值时，可以使用`%v`及其变形形式打印：
+```go
+func main() {
+	t := &T{7, -2.35, "abc\tdef"}
+	fmt.Println(t) // 输出：&{7 -2.35 abc   def}
+	fmt.Printf("%v\n", t) // 输出：&{7 -2.35 abc   def}，和直接执行Println的结果一样
+	fmt.Printf("%+v\n", t) // 输出：&{a:7 b:-2.35 c:abc     def}，会带上字段名
+	fmt.Printf("%#v\n", t) // 输出：&main.T{a:7, b:-2.35, c:"abc\tdef"}，go语法表示形式
+	fmt.Printf("%#v\n", time.UTC) // 输出：&time.Location{name:"UTC", zone:[]time.zone(nil), tx:[]time.zoneTrans(nil), cacheStart:0, cacheEnd:0, cacheZone:(*time.zone)(nil)}
+}
+```
+-  `reflect.ValueOf`方法返回`reflect.Value`，`reflect.Value`类似`interface{}`，可以持有任意类型的值。`reflect.ValueOf`返回的结
+果也是针对具体的类型，除非`reflect.Value`持有的是字符串值，否则其`String()`方法返回具体的类型的字符串表示形式。`%v`标志参数，可以输出
+`reflect.Value`持有的值：
+```go
+func main() {
+	var x interface{}
+
+	x = 3
+	v := reflect.ValueOf(x) // a reflect.Value
+	fmt.Println(v) // 输出：3
+	fmt.Printf("%v\n", v) // 输出：3
+	fmt.Println(v.String()) // 输出：<int Value>
+
+	x = []int{1}
+	v = reflect.ValueOf(x)
+	fmt.Println(v) // 输出：[1]
+	fmt.Printf("%v\n", v) // 输出：[1]
+	fmt.Println(v.String()) // 输出：<[]int Value>
+
+	x = time.Now()
+	v = reflect.ValueOf(x)
+	fmt.Println(v) // 输出：2020-07-14 21:00:10.911226 +0800 CST m=+0.000141229
+	fmt.Printf("%v\n", v) // 输出：2020-07-14 21:00:10.911226 +0800 CST m=+0.000141229
+	fmt.Println(v.String()) // 输出：<time.Time Value>
+}
+```
+- `reflect.Value`还有一些其他有用的方法：
+    - `Kind()`：获取值的种类，`reflect.Value`的值的类型有无限多种，但是种类是有限的，可以利用`Kind()`方法实现自己的`fmt.Println()`方法：
+        - Bool、String和所有数字类型的基础类型; 
+        - Array和Struct对应的聚合类型; 
+        - Chan、Func、Ptr、Slice和Map对应的引用类似;
+        - 接口类型;
+        - 表示空值的无效类型(空的`reflect.Value`对应`Invalid`);
+    - `Interface()`：返回一个`interface{}`，其指向`reflect.Value`表示的值
+    - `Type()`：返回一个`reflect.Type`
+    - 其他方法就不一一列举了，可以看下面的例子
+```go
+type Movie struct {
+	Title, Subtitle string
+	Year            int
+	Color           bool
+	Actor           map[string]string
+	Oscars          []string
+	Sequel          *string
+}
+
+func main() {
+	now := time.Now()
+	v := reflect.ValueOf(now) // 获取reflect.Value
+	fmt.Printf("%T\n", v)     // 输出：reflect.Value
+
+	i := v.Interface()    // 返回一个interface{}，其指向reflect.Value表示的值
+	a := i.(time.Time)    // 强转
+	fmt.Printf("%T\n", a) // 输出：time.Time
+	fmt.Println(a)        // 输出：2020-07-14 21:05:19.764024 +0800 CST m=+0.000107937
+
+	b := v.Type()                         // 返回一个reflect.Type
+	fmt.Printf("%T\n", b)                 // 输出：*reflect.rtype
+	fmt.Println(b)                        // 输出：time.Time
+	fmt.Println(b == reflect.TypeOf(now)) // 输出：true
+
+	c := v.Kind()                          // 获取值的类型
+	fmt.Printf("%T\n", c)                  // 输出：reflect.Kind
+	fmt.Println(c)                         // 输出：struct
+	fmt.Println(reflect.ValueOf(1).Kind()) // int
+
+	var x int64 = 1
+	d := 1 * time.Nanosecond
+	fmt.Println(printAny(x))                  // 输出：1
+	fmt.Println(printAny(d))                  // 输出：1
+	fmt.Println(printAny([]int64{x}))         // 输出：[]int64 0xc0000b4090
+	fmt.Println(printAny([]time.Duration{d})) // 输出：[]time.Duration 0xc0000b4098
+
+	strangelove := Movie{
+		Title:    "Dr. Strangelove",
+		Subtitle: "How I Learned to Stop Worrying and Love the Bomb", Year: 1964,
+		Color: false,
+		Actor: map[string]string{
+			"Dr. Strangelove":            "Peter Sellers",
+			"Grp. Capt. Lionel Mandrake": "Peter Sellers",
+			"Pres. Merkin Muffley":       "Peter Sellers",
+			"Gen. Buck Turgidson":        "George C. Scott",
+			"Brig. Gen. Jack D. Ripper":  "Sterling Hayden",
+			`Maj. T.J. "King" Kong`:      "Slim Pickens",
+		},
+		Oscars: []string{
+			"Best Actor (Nomin.)",
+			"Best Adapted Screenplay (Nomin.)", "Best Director (Nomin.)",
+			"Best Picture (Nomin.)",
+		},
+	}
+
+	/*
+	输出：
+	Display strangelove (main.Movie):
+	strangelove.Title = "Dr. Strangelove"
+	strangelove.Subtitle = "How I Learned to Stop Worrying and Love the Bomb"
+	strangelove.Year = 1964
+	strangelove.Color = false
+	strangelove.Actor["Gen. Buck Turgidson"] = "George C. Scott"
+	strangelove.Actor["Brig. Gen. Jack D. Ripper"] = "Sterling Hayden"
+	strangelove.Actor["Maj. T.J. \"King\" Kong"] = "Slim Pickens"
+	strangelove.Actor["Dr. Strangelove"] = "Peter Sellers"
+	strangelove.Actor["Grp. Capt. Lionel Mandrake"] = "Peter Sellers"
+	strangelove.Actor["Pres. Merkin Muffley"] = "Peter Sellers"
+	strangelove.Oscars[0] = "Best Actor (Nomin.)"
+	strangelove.Oscars[1] = "Best Adapted Screenplay (Nomin.)"
+	strangelove.Oscars[2] = "Best Director (Nomin.)"
+	strangelove.Oscars[3] = "Best Picture (Nomin.)"
+	strangelove.Sequel = nil
+	*/
+	Display("strangelove", strangelove)
+
+	/*
+	输出：
+	Display os.Stderr (*os.File):
+	(*(*os.Stderr).file).pfd.fdmu.state = 0
+	(*(*os.Stderr).file).pfd.fdmu.rsema = 0
+	(*(*os.Stderr).file).pfd.fdmu.wsema = 0
+	(*(*os.Stderr).file).pfd.Sysfd = 2
+	(*(*os.Stderr).file).pfd.pd.runtimeCtx = 0
+	(*(*os.Stderr).file).pfd.iovecs = nil
+	(*(*os.Stderr).file).pfd.csema = 0
+	(*(*os.Stderr).file).pfd.isBlocking = 1
+	(*(*os.Stderr).file).pfd.IsStream = true
+	(*(*os.Stderr).file).pfd.ZeroReadIsEOF = true
+	(*(*os.Stderr).file).pfd.isFile = true
+	(*(*os.Stderr).file).name = "/dev/stderr"
+	(*(*os.Stderr).file).dirinfo = nil
+	(*(*os.Stderr).file).nonblock = false
+	(*(*os.Stderr).file).stdoutOrErr = true
+	(*(*os.Stderr).file).appendMode = false
+	 */
+	Display("os.Stderr", os.Stderr)
+}
+
+func printAny(value interface{}) string {
+	return printValue(reflect.ValueOf(value))
+}
+
+func Display(name string, x interface{}) {
+	fmt.Printf("Display %s (%T):\n", name, x)
+	display(name, reflect.ValueOf(x))
+}
+
+func display(path string, v reflect.Value) {
+	switch v.Kind() {
+	case reflect.Invalid:
+		fmt.Printf("%s = invalid\n", path)
+	case reflect.Slice, reflect.Array:
+		for i := 0; i < v.Len(); i++ {
+			display(fmt.Sprintf("%s[%d]", path, i), v.Index(i)) // 通过Index方法获取切片和数组的指定元素
+		}
+	case reflect.Struct:
+		for i := 0; i < v.NumField(); i++ {
+			fieldPath := fmt.Sprintf("%s.%s", path, v.Type().Field(i).Name) // 结构体通过reflect.Type的Field方法获取属性
+			display(fieldPath, v.Field(i))
+		}
+	case reflect.Map:
+		for _, key := range v.MapKeys() {
+			display(fmt.Sprintf("%s[%s]", path, printValue(key)), v.MapIndex(key)) // map通过MapKeys方法获取所有的key，并通过MapIndex获取指定key的value
+		}
+	case reflect.Ptr:
+		if v.IsNil() {
+			fmt.Printf("%s = nil\n", path)
+		} else {
+			display(fmt.Sprintf("(*%s)", path), v.Elem()) // Elem方法返回一个reflect.Value变量，其持有指针指向的变量
+		}
+	case reflect.Interface:
+		if v.IsNil() {
+			fmt.Printf("%s = nil\n", path)
+		} else {
+			fmt.Printf("%s.type = %s\n", path, v.Elem().Type())
+			display(path+".value", v.Elem()) // Elem方法返回一个reflect.Value变量，其持有接口指向的变量
+		}
+	default: // basic types, channels, funcs
+		fmt.Printf("%s = %s\n", path, printValue(v))
+	}
+}
+
+func printValue(v reflect.Value) string {
+	switch v.Kind() {
+	case reflect.Invalid:
+		return "invalid"
+	case reflect.Int, reflect.Int8, reflect.Int16,
+		reflect.Int32, reflect.Int64:
+		return strconv.FormatInt(v.Int(), 10)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16,
+		reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return strconv.FormatUint(v.Uint(), 10)
+	// 简单起见，省略了一些浮点类型的判断
+	case reflect.Bool:
+		return strconv.FormatBool(v.Bool())
+	case reflect.String:
+		return strconv.Quote(v.String())
+	case reflect.Chan, reflect.Func, reflect.Ptr, reflect.Slice, reflect.Map:
+		return v.Type().String() + " 0x" + strconv.FormatUint(uint64(v.Pointer()), 16)
+	default: // reflect.Array, reflect.Struct, reflect.Interface...
+		return v.Type().String() + " value"
+	}
+}
+```
