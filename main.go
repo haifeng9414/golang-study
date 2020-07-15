@@ -2,173 +2,61 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"reflect"
-	"strconv"
-	"time"
 )
 
-type Movie struct {
-	Title, Subtitle string
-	Year            int
-	Color           bool
-	Actor           map[string]string
-	Oscars          []string
-	Sequel          *string
+type Demo struct {
+	A string
+	b string
 }
 
 func main() {
-	now := time.Now()
-	v := reflect.ValueOf(now) // 获取reflect.Value
-	fmt.Printf("%T\n", v)     // 输出：reflect.Value
+	x := 2
+	a := reflect.ValueOf(2) // 直接通过ValueOf方法获取的所有Value都是不可寻址的
+	b := reflect.ValueOf(x) // 直接通过ValueOf方法获取的所有Value都是不可寻址的
+	c := reflect.ValueOf(&x) // 直接通过ValueOf方法获取的所有Value都是不可寻址的
+	d := c.Elem() // d是通过c解引用获取到的，是可寻址的
+	d.SetInt(1) // 通过d修改x的值
+	fmt.Println(x) // 输出：1
 
-	i := v.Interface()    // 返回一个interface{}，其指向reflect.Value表示的值
-	a := i.(time.Time)    // 强转
-	fmt.Printf("%T\n", a) // 输出：time.Time
-	fmt.Println(a)        // 输出：2020-07-14 21:05:19.764024 +0800 CST m=+0.000107937
+	fmt.Printf("value: %v, type: %v, can addr: %v\n", a, a.Type(), a.CanAddr()) // 输出：value: 2, type: int, can addr: false
+	fmt.Printf("value: %v, type: %v, can addr: %v\n", b, b.Type(), b.CanAddr()) // 输出：value: 2, type: int, can addr: false
+	fmt.Printf("value: %v, type: %v, can addr: %v\n", c, c.Type(), c.CanAddr()) // 输出：value: 0xc0000b4008, type: *int, can addr: false
+	fmt.Printf("value: %v, type: %v, can addr: %v\n", d, d.Type(), d.CanAddr()) // 输出：value: 1, type: int, can addr: true
 
-	b := v.Type()                         // 返回一个reflect.Type
-	fmt.Printf("%T\n", b)                 // 输出：*reflect.rtype
-	fmt.Println(b)                        // 输出：time.Time
-	fmt.Println(b == reflect.TypeOf(now)) // 输出：true
+	// 如果已知变量的类型，也可以强转得到指针再更新
+	// 先通过Addr()方法获取一个Value，里面保存了指向变量的指针
+	addr := d.Addr()
+	// 在Value上调用Interface()方法，获得一个interface{}，里面包含指向变量的指针
+	inter := addr.Interface()
+	// 强转
+	px := inter.(*int)
+	// 上面的3补等价于px := &x
+	*px = 3 // x = 3
+	fmt.Println(x) // 输出：3
 
-	c := v.Kind()                          // 获取值的类型
-	fmt.Printf("%T\n", c)                  // 输出：reflect.Kind
-	fmt.Println(c)                         // 输出：struct
-	fmt.Println(reflect.ValueOf(1).Kind()) // int
+	// 也可以直接通过set方法更新，但是如果更新的值的类型和变量的类型不匹配，会panic
+	d.Set(reflect.ValueOf(4))
+	fmt.Println(x) // 输出：4
+	//d.Set(reflect.ValueOf(int64(4))) panic: reflect.Set: value of type int64 is not assignable to type int
 
-	var x int64 = 1
-	d := 1 * time.Nanosecond
-	fmt.Println(printAny(x))                  // 输出：1
-	fmt.Println(printAny(d))                  // 输出：1
-	fmt.Println(printAny([]int64{x}))         // 输出：[]int64 0xc0000b4090
-	fmt.Println(printAny([]time.Duration{d})) // 输出：[]time.Duration 0xc0000b4098
+	// 如果在不可寻址的变量上调用set方法也会panic
+	//b.Set(reflect.ValueOf(3)) panic: reflect: reflect.flag.mustBeAssignable using unaddressable value
 
-	strangelove := Movie{
-		Title:    "Dr. Strangelove",
-		Subtitle: "How I Learned to Stop Worrying and Love the Bomb", Year: 1964,
-		Color: false,
-		Actor: map[string]string{
-			"Dr. Strangelove":            "Peter Sellers",
-			"Grp. Capt. Lionel Mandrake": "Peter Sellers",
-			"Pres. Merkin Muffley":       "Peter Sellers",
-			"Gen. Buck Turgidson":        "George C. Scott",
-			"Brig. Gen. Jack D. Ripper":  "Sterling Hayden",
-			`Maj. T.J. "King" Kong`:      "Slim Pickens",
-		},
-		Oscars: []string{
-			"Best Actor (Nomin.)",
-			"Best Adapted Screenplay (Nomin.)", "Best Director (Nomin.)",
-			"Best Picture (Nomin.)",
-		},
-	}
+	// reflect.Value会记录一个结构体成员是否是未导出成员，如果是的话则拒绝修改操作，所以通过CanAddr方法判断变量是否可寻址来判断是否
+	// 能够执行修改操作这是不对的，不过可以直接通过CanSet方法来判断是否可以修改reflect.Value对应的值
+	demo := Demo{"testA", "testB"}
+	// reflect.ValueOf(demo)不能调用Elem方法，因为demo是不能解引用的
+	//_ = reflect.ValueOf(demo).Elem() panic: reflect: call of reflect.Value.Elem on struct Value
+	elem := reflect.ValueOf(&demo).Elem()
+	aFiled := elem.FieldByName("A")
+	bFiled := elem.FieldByName("b")
+	fmt.Println(aFiled) // 输出：testA
+	fmt.Println(bFiled) // 输出：testB
+	fmt.Println(aFiled.CanSet()) // 输出：true
+	fmt.Println(bFiled.CanSet()) // 输出：false
 
-	/*
-	输出：
-	Display strangelove (main.Movie):
-	strangelove.Title = "Dr. Strangelove"
-	strangelove.Subtitle = "How I Learned to Stop Worrying and Love the Bomb"
-	strangelove.Year = 1964
-	strangelove.Color = false
-	strangelove.Actor["Gen. Buck Turgidson"] = "George C. Scott"
-	strangelove.Actor["Brig. Gen. Jack D. Ripper"] = "Sterling Hayden"
-	strangelove.Actor["Maj. T.J. \"King\" Kong"] = "Slim Pickens"
-	strangelove.Actor["Dr. Strangelove"] = "Peter Sellers"
-	strangelove.Actor["Grp. Capt. Lionel Mandrake"] = "Peter Sellers"
-	strangelove.Actor["Pres. Merkin Muffley"] = "Peter Sellers"
-	strangelove.Oscars[0] = "Best Actor (Nomin.)"
-	strangelove.Oscars[1] = "Best Adapted Screenplay (Nomin.)"
-	strangelove.Oscars[2] = "Best Director (Nomin.)"
-	strangelove.Oscars[3] = "Best Picture (Nomin.)"
-	strangelove.Sequel = nil
-	*/
-	Display("strangelove", strangelove)
-
-	/*
-	输出：
-	Display os.Stderr (*os.File):
-	(*(*os.Stderr).file).pfd.fdmu.state = 0
-	(*(*os.Stderr).file).pfd.fdmu.rsema = 0
-	(*(*os.Stderr).file).pfd.fdmu.wsema = 0
-	(*(*os.Stderr).file).pfd.Sysfd = 2
-	(*(*os.Stderr).file).pfd.pd.runtimeCtx = 0
-	(*(*os.Stderr).file).pfd.iovecs = nil
-	(*(*os.Stderr).file).pfd.csema = 0
-	(*(*os.Stderr).file).pfd.isBlocking = 1
-	(*(*os.Stderr).file).pfd.IsStream = true
-	(*(*os.Stderr).file).pfd.ZeroReadIsEOF = true
-	(*(*os.Stderr).file).pfd.isFile = true
-	(*(*os.Stderr).file).name = "/dev/stderr"
-	(*(*os.Stderr).file).dirinfo = nil
-	(*(*os.Stderr).file).nonblock = false
-	(*(*os.Stderr).file).stdoutOrErr = true
-	(*(*os.Stderr).file).appendMode = false
-	 */
-	Display("os.Stderr", os.Stderr)
-}
-
-func printAny(value interface{}) string {
-	return printValue(reflect.ValueOf(value))
-}
-
-func Display(name string, x interface{}) {
-	fmt.Printf("Display %s (%T):\n", name, x)
-	display(name, reflect.ValueOf(x))
-}
-
-func display(path string, v reflect.Value) {
-	switch v.Kind() {
-	case reflect.Invalid:
-		fmt.Printf("%s = invalid\n", path)
-	case reflect.Slice, reflect.Array:
-		for i := 0; i < v.Len(); i++ {
-			display(fmt.Sprintf("%s[%d]", path, i), v.Index(i)) // 通过Index方法获取切片和数组的指定元素
-		}
-	case reflect.Struct:
-		for i := 0; i < v.NumField(); i++ {
-			fieldPath := fmt.Sprintf("%s.%s", path, v.Type().Field(i).Name) // 结构体通过reflect.Type的Field方法获取属性
-			display(fieldPath, v.Field(i))
-		}
-	case reflect.Map:
-		for _, key := range v.MapKeys() {
-			display(fmt.Sprintf("%s[%s]", path, printValue(key)), v.MapIndex(key)) // map通过MapKeys方法获取所有的key，并通过MapIndex获取指定key的value
-		}
-	case reflect.Ptr:
-		if v.IsNil() {
-			fmt.Printf("%s = nil\n", path)
-		} else {
-			display(fmt.Sprintf("(*%s)", path), v.Elem()) // Elem方法返回一个reflect.Value变量，其持有指针指向的变量
-		}
-	case reflect.Interface:
-		if v.IsNil() {
-			fmt.Printf("%s = nil\n", path)
-		} else {
-			fmt.Printf("%s.type = %s\n", path, v.Elem().Type())
-			display(path+".value", v.Elem()) // Elem方法返回一个reflect.Value变量，其持有接口指向的变量
-		}
-	default: // basic types, channels, funcs
-		fmt.Printf("%s = %s\n", path, printValue(v))
-	}
-}
-
-func printValue(v reflect.Value) string {
-	switch v.Kind() {
-	case reflect.Invalid:
-		return "invalid"
-	case reflect.Int, reflect.Int8, reflect.Int16,
-		reflect.Int32, reflect.Int64:
-		return strconv.FormatInt(v.Int(), 10)
-	case reflect.Uint, reflect.Uint8, reflect.Uint16,
-		reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		return strconv.FormatUint(v.Uint(), 10)
-	// 简单起见，省略了一些浮点类型的判断
-	case reflect.Bool:
-		return strconv.FormatBool(v.Bool())
-	case reflect.String:
-		return strconv.Quote(v.String())
-	case reflect.Chan, reflect.Func, reflect.Ptr, reflect.Slice, reflect.Map:
-		return v.Type().String() + " 0x" + strconv.FormatUint(uint64(v.Pointer()), 16)
-	default: // reflect.Array, reflect.Struct, reflect.Interface...
-		return v.Type().String() + " value"
-	}
+	aFiled.SetString("test")
+	fmt.Println(aFiled) // 输出：test
+	//bFiled.SetString("test") panic: reflect: reflect.flag.mustBeAssignable using value obtained using unexported field
 }

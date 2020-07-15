@@ -104,7 +104,7 @@ func main() {
 	fmt.Println(array2) // 输出：[[-1 11] [20 21] [30 31] [40 41]]
 }
 ```
-如果数组元素类型是指针，则赋值的时候复制的就是指针的值，而不是指针所指向的值。
+- 如果数组元素类型是指针，则赋值的时候复制的就是指针的值，而不是指针所指向的值。
 - 上面的性质也意味着在函数间传递数组是一个开销很大的操作。在函数之间传递变量时，总是以值的方式传递的，如果这个变量是一个数组，意味着整个
 数组，不管有多长，都会完整复制，并传递给函数。可以将函数参数由数组改为数组指针（如`func foo(array*[1e6]int)`）从而避免不必要的复制，但是
 也要注意函数内对数组的修改会反映在
@@ -196,8 +196,7 @@ func main() {
 	fmt.Println(array2) // 输出：[-1 3]，array2跟着一块变了
 }
 ```
-- append方法可以向切片追加元素，并返回一个新的切片。新切片的长度总是大于原来的切片，但是容量可能大于也可能等于原来的切片，取决于原来的切片
-是否有可用容量。如果容量不够，则执行append时golang会创建一个两倍原切片容量的新数组并复制数组元素（不一定都是成倍增加，当容量很大时，如
+- append方法可以向切片追加元素，并返回一个新的切片。新切片的长度总是大于原来的切片，但是容量可能大于也可能等于原来的切片，取决于原来的切片是否有可用容量。如果容量不够，则执行append时golang会创建一个两倍原切片容量的新数组并复制数组元素（不一定都是成倍增加，当容量很大时，如
 2000，则增加的倍数可能只有1.25，具体的倍数取决的golang的版本是如何实现的），如：
 ```go
 func main() {
@@ -424,9 +423,9 @@ func main() {
 - 一般情况下使用类型的值还是类型的指针作为方法接收者或者函数参数，取决于是否想要方法或函数能够对类型的值直接做修改。如果不想要修改，则应该使用
 类型的值作为方法接收者或者函数参数，这样方法或函数操作的是类型的值的副本。如果想要被修改，则应该使用类型的指针。
 
-如果单纯为了效率考虑，可以使用类型的指针避免类型的值被不必要的复制，如果类型的值可能包含一个大数组。
+	如果单纯为了效率考虑，可以使用类型的指针避免类型的值被不必要的复制，如果类型的值可能包含一个大数组。
 
-有些类型不能被安全的复制，同时也不允许修改，则可以使用指针并且不公开属性，如标准库中的File：
+	有些类型不能被安全的复制，同时也不允许修改，则可以使用指针并且不公开属性，如标准库中的File：
 ```go
 type File struct {
 	*file // 内嵌类型
@@ -826,5 +825,154 @@ func printValue(v reflect.Value) string {
 	default: // reflect.Array, reflect.Struct, reflect.Interface...
 		return v.Type().String() + " value"
 	}
+}
+```
+- go中有些值是不可寻址的，不可寻址的值不能获取其指针，不可寻址的情况有：
+    - 常量的值；
+    - 基本类型值的字面量；
+    - 算术操作的结果值；
+    - 对各种字面量的索引表达式和切片表达式的结果值。不过有一个例外，对切片字面量的索引结果值是可寻址的；
+    - 对字符串变量的索引表达式和切片表达式的结果值；
+    - 对字典变量的索引表达式的结果值；函数字面量和方法字面量，以及对它们的调用表达式的结果值；
+    - 结构体字面量的字段值，也就是对结构体字面量的选择表达式的结果值；
+    - 类型转换表达式的结果值；
+    - 类型断言表达式的结果值；
+    - 接收表达式的结果值；
+    - 指向函数或者方法的值；
+上面的情况其实可以总结为：
+    - 不可变的值；
+    - 临时结果（对切片字面量的索引结果值是可寻址的。因为不论怎样，每个切片值都会持有一个底层数组，而这个底层数组中的每个元素值都是有一个确切的内存地址的。）；
+    - 不安全的，若拿到某值的指针可能会破坏程序的一致性，那么就是不安全的，该值就不可寻址；
+
+	例子：
+```go
+type Named interface {
+	Name() string
+}
+
+type Dog struct {
+	name string
+}
+
+func (dog *Dog) SetName(name string) {
+	dog.name = name
+}
+
+func (dog Dog) Name() string {
+	return dog.name
+}
+
+func main() {
+	const num = 123
+	//_ = &num // 常量属于不可变的值，不可寻址。
+	//_ = &(123) // 基本类型的字面量属于不可变的值，不可寻址。
+
+	var str = "abc"
+	_ = str // 变量是可寻址的
+	//_ = &(str[0]) // 对字符串变量的索引结果值不可寻址，因为字符串不可变，寻址了也没意义
+	//_ = &(str[0:2]) // 对字符串变量的切片结果值不可寻址，因为字符串不可变，寻址了也没意义
+	str2 := str[0]
+	_ = &str2 // 但这样的寻址就是合法的，因为str2 := str[0]实际上是复制一份str[0]并赋值给str2
+
+	//_ = &(123 + 456) // 算术操作的结果值属于临时变量，不可寻址。
+	num2 := 456
+	_ = &num2 // 变量是可寻址的
+	//_ = &(num + num2) // 算术操作的结果值属于临时变量，不可寻址。
+
+	//_ = &([3]int{1, 2, 3}[0]) // 数组字面量的索引结果值属于临时变量，不可寻址。
+	//_ = &([3]int{1, 2, 3}[0:2]) // 数组字面量的切片结果值属于临时变量，不可寻址。
+	_ = &([]int{1, 2, 3}[0]) // 需要注意的是，对切片字面量的索引结果值却是可寻址的，因为不论怎样，每个切片值都会持有一个底层数组，而这个底层数组中的每个元素值都是有一个确切的内存地址。
+	//_ = &([]int{1, 2, 3}[0:2]) // 切片字面量的切片结果值属于临时变量，不可寻址。
+	//_ = &(map[int]string{1: "a"}[0]) // 字典字面量的索引结果值属于临时变量，不可寻址。
+
+	var map1 = map[int]string{1: "a", 2: "b", 3: "c"}
+	_ = &map1 // 变量是可寻址的
+	//_ = &(map1[2]) // 字典变量的索引结果值不可寻址，因为字典中的每个键值对的存储位置都可能会变化，而且这种变化外界是无法感知的。
+
+	//_ = &(func(x, y int) int { // 字面量代表的函数不可寻址。
+	//	return x + y
+	//})
+	//_ = &(fmt.Sprintf) // 标识符代表的函数不可寻址。
+	//_ = &(fmt.Sprintln("abc")) // 对函数的调用结果值属于临时变量，不可寻址。
+
+	dog := Dog{"little pig"}
+	_ = &dog // 变量是可寻址的
+	//_ = &(dog.Name) // 标识符代表的函数不可寻址。
+	//_ = &(dog.Name()) // 对方法的调用结果值不可寻址。
+
+	//_ = &(Dog{"little pig"}.name) // 结构体字面量的字段属于临时变量，不可寻址。
+
+	//_ = &(interface{}(dog)) // 类型转换表达式的结果值属于临时变量，不可寻址。
+	dogI := interface{}(dog)
+	_ = &dogI // 变量是可寻址的
+	//_ = &(dogI.(Named)) // 类型断言表达式的结果值属于临时变量，不可寻址。
+	named := dogI.(Named)
+	_ = &named // 变量是可寻址的
+	//_ = &(named.(Dog)) // 类型断言表达式的结果值属于临时变量，不可寻址。
+
+	var chan1 = make(chan int, 1)
+	chan1 <- 1
+	//_ = &(<-chan1) // 接收表达式的结果值属于临时变量，不可寻址。
+}
+```
+- 下面看看如果通过`reflect.Value`修改值。可寻址的值表示可以通过内存地址来更新的值，一个变量就是一个可寻址的内存空间，里面存储了一个值，
+并且存储的值可以通过内存地址来更新：
+```go
+type Demo struct {
+	A string
+	b string
+}
+
+func main() {
+	x := 2
+	a := reflect.ValueOf(2) // 直接通过ValueOf方法获取的所有Value都是不可寻址的
+	b := reflect.ValueOf(x) // 直接通过ValueOf方法获取的所有Value都是不可寻址的
+	c := reflect.ValueOf(&x) // 直接通过ValueOf方法获取的所有Value都是不可寻址的
+	d := c.Elem() // d是通过c解引用获取到的，是可寻址的
+	d.SetInt(1) // 通过d修改x的值
+	fmt.Println(x) // 输出：1
+
+    // 观察c和d输出的不同，就能理解为什么直接通过ValueOf方法获取的Value是不可寻址的，c是个指向指针变量的reflect.Value，不能直接
+    // 修改一个指针变量的值，需要通过Elem方法解引用
+	fmt.Printf("value: %v, type: %v, can addr: %v\n", a, a.Type(), a.CanAddr()) // 输出：value: 2, type: int, can addr: false
+	fmt.Printf("value: %v, type: %v, can addr: %v\n", b, b.Type(), b.CanAddr()) // 输出：value: 2, type: int, can addr: false
+	fmt.Printf("value: %v, type: %v, can addr: %v\n", c, c.Type(), c.CanAddr()) // 输出：value: 0xc0000b4008, type: *int, can addr: false
+	fmt.Printf("value: %v, type: %v, can addr: %v\n", d, d.Type(), d.CanAddr()) // 输出：value: 1, type: int, can addr: true
+
+	// 如果已知变量的类型，也可以强转得到指针再更新
+	// 先通过Addr()方法获取一个Value，里面保存了指向变量的指针
+	addr := d.Addr()
+	// 在Value上调用Interface()方法，获得一个interface{}，里面包含指向变量的指针
+	inter := addr.Interface()
+	// 强转
+	px := inter.(*int)
+	// 上面的3补等价于px := &x
+	*px = 3 // x = 3
+	fmt.Println(x) // 输出：3
+
+	// 也可以直接通过set方法更新，但是如果更新的值的类型和变量的类型不匹配，会panic
+	d.Set(reflect.ValueOf(4))
+	fmt.Println(x) // 输出：4
+	//d.Set(reflect.ValueOf(int64(4))) panic: reflect.Set: value of type int64 is not assignable to type int
+
+	// 如果在不可寻址的变量上调用set方法也会panic
+	//b.Set(reflect.ValueOf(3)) panic: reflect: reflect.flag.mustBeAssignable using unaddressable value
+
+	// reflect.Value会记录一个结构体成员是否是未导出成员，如果是的话则拒绝修改操作，所以通过CanAddr方法判断变量是否可寻址来判断是否
+	// 能够执行修改操作这是不对的，不过可以直接通过CanSet方法来判断是否可以修改reflect.Value对应的值
+	demo := Demo{"testA", "testB"}
+	// reflect.ValueOf(demo)不能调用Elem方法，因为引用变量是不能解引用的
+    //_ = reflect.ValueOf(demo).Elem() panic: reflect: call of reflect.Value.Elem on struct Value
+    elem := reflect.ValueOf(&demo).Elem()
+    aFiled := elem.FieldByName("A")
+    bFiled := elem.FieldByName("b")
+	fmt.Println(aFiled) // 输出：testA
+	fmt.Println(bFiled) // 输出：testB
+	fmt.Println(aFiled.CanSet()) // 输出：true
+	fmt.Println(bFiled.CanSet()) // 输出：false
+
+	aFiled.SetString("test")
+	fmt.Println(aFiled) // 输出：test
+	//bFiled.SetString("test") panic: reflect: reflect.flag.mustBeAssignable using value obtained using unexported field
 }
 ```
