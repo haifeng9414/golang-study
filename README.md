@@ -976,3 +976,4 @@ func main() {
 	//bFiled.SetString("test") panic: reflect: reflect.flag.mustBeAssignable using value obtained using unexported field
 }
 ```
+- 关于`reflect.Kind`和`reflect.Value`等反射相关的使用，还可以看[序列化和反序列化对象的例子](sexpr/sexpr_test.go)

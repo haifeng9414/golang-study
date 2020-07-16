@@ -1,62 +1,252 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"reflect"
+	"strconv"
+	"text/scanner"
 )
 
-type Demo struct {
-	A string
-	b string
+type Movie struct {
+	//Title, Subtitle string
+	//Year            int
+	Color           bool
+	//Actor           map[string]string
+	//Oscars          []string
+	//Sequel          *string
 }
 
 func main() {
-	x := 2
-	a := reflect.ValueOf(2) // 直接通过ValueOf方法获取的所有Value都是不可寻址的
-	b := reflect.ValueOf(x) // 直接通过ValueOf方法获取的所有Value都是不可寻址的
-	c := reflect.ValueOf(&x) // 直接通过ValueOf方法获取的所有Value都是不可寻址的
-	d := c.Elem() // d是通过c解引用获取到的，是可寻址的
-	d.SetInt(1) // 通过d修改x的值
-	fmt.Println(x) // 输出：1
+	//strangelove := Movie{
+	//	Title:    "Dr. Strangelove",
+	//	Subtitle: "How I Learned to Stop Worrying and Love the Bomb", Year: 1964,
+	//	Color: false,
+	//	Actor: map[string]string{
+	//		"Dr. Strangelove":            "Peter Sellers",
+	//		"Grp. Capt. Lionel Mandrake": "Peter Sellers",
+	//		"Pres. Merkin Muffley":       "Peter Sellers",
+	//		"Gen. Buck Turgidson":        "George C. Scott",
+	//		"Brig. Gen. Jack D. Ripper":  "Sterling Hayden",
+	//		`Maj. T.J. "King" Kong`:      "Slim Pickens",
+	//	},
+	//	Oscars: []string{
+	//		"Best Actor (Nomin.)",
+	//		"Best Adapted Screenplay (Nomin.)", "Best Director (Nomin.)",
+	//		"Best Picture (Nomin.)",
+	//	},
+	//}
+	strangelove := Movie{
+		//Title:    "Dr. Strangelove",
+		//Subtitle: "How I Learned to Stop Worrying and Love the Bomb", Year: 1964,
+		Color: false,
+		//Actor: map[string]string{
+		//	"Dr. Strangelove":            "Peter Sellers",
+		//	"Grp. Capt. Lionel Mandrake": "Peter Sellers",
+		//	"Pres. Merkin Muffley":       "Peter Sellers",
+		//	"Gen. Buck Turgidson":        "George C. Scott",
+		//	"Brig. Gen. Jack D. Ripper":  "Sterling Hayden",
+		//	`Maj. T.J. "King" Kong`:      "Slim Pickens",
+		//},
+		//Oscars: []string{
+		//	"Best Actor (Nomin.)",
+		//	"Best Adapted Screenplay (Nomin.)", "Best Director (Nomin.)",
+		//	"Best Picture (Nomin.)",
+		//},
+	}
 
-	fmt.Printf("value: %v, type: %v, can addr: %v\n", a, a.Type(), a.CanAddr()) // 输出：value: 2, type: int, can addr: false
-	fmt.Printf("value: %v, type: %v, can addr: %v\n", b, b.Type(), b.CanAddr()) // 输出：value: 2, type: int, can addr: false
-	fmt.Printf("value: %v, type: %v, can addr: %v\n", c, c.Type(), c.CanAddr()) // 输出：value: 0xc0000b4008, type: *int, can addr: false
-	fmt.Printf("value: %v, type: %v, can addr: %v\n", d, d.Type(), d.CanAddr()) // 输出：value: 1, type: int, can addr: true
+	marshal, err := Marshal(strangelove)
+	if err != nil {
+		fmt.Println("Marshal error", err)
+		return
+	}
+	fmt.Println(string(marshal))
 
-	// 如果已知变量的类型，也可以强转得到指针再更新
-	// 先通过Addr()方法获取一个Value，里面保存了指向变量的指针
-	addr := d.Addr()
-	// 在Value上调用Interface()方法，获得一个interface{}，里面包含指向变量的指针
-	inter := addr.Interface()
-	// 强转
-	px := inter.(*int)
-	// 上面的3补等价于px := &x
-	*px = 3 // x = 3
-	fmt.Println(x) // 输出：3
+	movie := Movie{}
+	err = Unmarshal(marshal, &movie)
+	if err != nil {
+		fmt.Println("Unmarshal error", err)
+		return
+	}
+	fmt.Println(movie)
+}
 
-	// 也可以直接通过set方法更新，但是如果更新的值的类型和变量的类型不匹配，会panic
-	d.Set(reflect.ValueOf(4))
-	fmt.Println(x) // 输出：4
-	//d.Set(reflect.ValueOf(int64(4))) panic: reflect.Set: value of type int64 is not assignable to type int
+type lexer struct {
+	scan  scanner.Scanner
+	token rune // the current token
+}
 
-	// 如果在不可寻址的变量上调用set方法也会panic
-	//b.Set(reflect.ValueOf(3)) panic: reflect: reflect.flag.mustBeAssignable using unaddressable value
+func (lex *lexer) next()        { lex.token = lex.scan.Scan() }
+func (lex *lexer) text() string { return lex.scan.TokenText() }
+func (lex *lexer) consume(want rune) {
+	if lex.token != want { // NOTE: Not an example of good error handling.
+		panic(fmt.Sprintf("got %q, want %q", lex.text(), want))
+	}
+	lex.next()
+}
 
-	// reflect.Value会记录一个结构体成员是否是未导出成员，如果是的话则拒绝修改操作，所以通过CanAddr方法判断变量是否可寻址来判断是否
-	// 能够执行修改操作这是不对的，不过可以直接通过CanSet方法来判断是否可以修改reflect.Value对应的值
-	demo := Demo{"testA", "testB"}
-	// reflect.ValueOf(demo)不能调用Elem方法，因为demo是不能解引用的
-	//_ = reflect.ValueOf(demo).Elem() panic: reflect: call of reflect.Value.Elem on struct Value
-	elem := reflect.ValueOf(&demo).Elem()
-	aFiled := elem.FieldByName("A")
-	bFiled := elem.FieldByName("b")
-	fmt.Println(aFiled) // 输出：testA
-	fmt.Println(bFiled) // 输出：testB
-	fmt.Println(aFiled.CanSet()) // 输出：true
-	fmt.Println(bFiled.CanSet()) // 输出：false
+func read(lex *lexer, v reflect.Value) {
+	switch lex.token {
+	case scanner.Ident:
+		// The only valid identifiers are
+		// "nil" and struct field names.
+		if lex.text() == "nil" {
+			v.Set(reflect.Zero(v.Type()))
+			lex.next()
+			return
+		}
+	case scanner.String:
+		s, _ := strconv.Unquote(lex.text()) // NOTE: ignoring errors
+		v.SetString(s)
+		lex.next()
+		return
+	case scanner.Int:
+		i, _ := strconv.Atoi(lex.text()) // NOTE: ignoring errors
+		v.SetInt(int64(i))
+		lex.next()
+		return
+	case '(':
+		lex.next()
+		readList(lex, v)
+		lex.next() // consume ')'
+		return
+	}
+	panic(fmt.Sprintf("unexpected token %q", lex.text()))
+}
 
-	aFiled.SetString("test")
-	fmt.Println(aFiled) // 输出：test
-	//bFiled.SetString("test") panic: reflect: reflect.flag.mustBeAssignable using value obtained using unexported field
+func readList(lex *lexer, v reflect.Value) {
+	switch v.Kind() {
+	case reflect.Array: // (item ...)
+		for i := 0; !endList(lex); i++ {
+			read(lex, v.Index(i))
+		}
+	case reflect.Slice: // (item ...)
+		for !endList(lex) {
+			item := reflect.New(v.Type().Elem()).Elem()
+			read(lex, item)
+			v.Set(reflect.Append(v, item))
+		}
+	case reflect.Struct: // ((name value) ...)
+		for !endList(lex) {
+			lex.consume('(')
+			if lex.token != scanner.Ident {
+				panic(fmt.Sprintf("got token %q, want field name", lex.text()))
+			}
+			name := lex.text()
+			lex.next()
+			read(lex, v.FieldByName(name))
+			lex.consume(')')
+		}
+	case reflect.Map: // ((key value) ...)
+		v.Set(reflect.MakeMap(v.Type()))
+		for !endList(lex) {
+			lex.consume('(')
+			key := reflect.New(v.Type().Key()).Elem()
+			read(lex, key)
+			value := reflect.New(v.Type().Elem()).Elem()
+			read(lex, value)
+			v.SetMapIndex(key, value)
+			lex.consume(')')
+		}
+	default:
+		panic(fmt.Sprintf("cannot decode list into %v", v.Type()))
+	}
+}
+
+func endList(lex *lexer) bool {
+	switch lex.token {
+	case scanner.EOF:
+		panic("end of file")
+	case ')':
+		return true
+	}
+	return false
+}
+
+func encode(buf *bytes.Buffer, v reflect.Value) error {
+	switch v.Kind() {
+	case reflect.Invalid:
+		buf.WriteString("nil")
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		fmt.Fprintf(buf, "%d", v.Int())
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		fmt.Fprintf(buf, "%d", v.Uint())
+	case reflect.String:
+		fmt.Fprintf(buf, "%q", v.String())
+	case reflect.Bool:
+		fmt.Fprintf(buf, "%t", v.Bool())
+	case reflect.Float32, reflect.Float64:
+		fmt.Fprintf(buf, "%e", v.Float())
+	case reflect.Complex64, reflect.Complex128:
+		fmt.Fprintf(buf, "%e", v.Complex())
+	case reflect.Ptr:
+		return encode(buf, v.Elem())
+	case reflect.Array, reflect.Slice: // (value ...)
+		buf.WriteByte('(')
+		for i := 0; i < v.Len(); i++ {
+			if i > 0 {
+				buf.WriteByte(' ')
+			}
+			if err := encode(buf, v.Index(i)); err != nil {
+				return err
+			}
+		}
+		buf.WriteByte(')')
+	case reflect.Struct: // ((name value) ...)
+		buf.WriteByte('(')
+		for i := 0; i < v.NumField(); i++ {
+			if i > 0 {
+				buf.WriteByte(' ')
+			}
+			fmt.Fprintf(buf, "(%s ", v.Type().Field(i).Name)
+			if err := encode(buf, v.Field(i)); err != nil {
+				return err
+			}
+			buf.WriteByte(')')
+		}
+		buf.WriteByte(')')
+	case reflect.Map: // ((key value) ...)
+		buf.WriteByte('(')
+		for i, key := range v.MapKeys() {
+			if i > 0 {
+				buf.WriteByte(' ')
+			}
+			buf.WriteByte('(')
+			if err := encode(buf, key); err != nil {
+				return err
+			}
+			buf.WriteByte(' ')
+			if err := encode(buf, v.MapIndex(key)); err != nil {
+				return err
+			}
+			buf.WriteByte(')')
+		}
+		buf.WriteByte(')')
+	default: // float, complex, chan, func, interface
+		return fmt.Errorf("unsupported type: %s", v.Type())
+	}
+	return nil
+}
+
+// Marshal encodes a Go value in S-expression form.
+func Marshal(v interface{}) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := encode(&buf, reflect.ValueOf(v)); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func Unmarshal(data []byte, out interface{}) (err error) {
+	lex := &lexer{scan: scanner.Scanner{Mode: scanner.GoTokens}}
+	lex.scan.Init(bytes.NewReader(data))
+	lex.next() // get the first token
+	defer func() {
+		// NOTE: this is not an example of ideal error handling.
+		if x := recover(); x != nil {
+			err = fmt.Errorf("error at %s: %v", lex.scan.Position, x)
+		}
+	}()
+	read(lex, reflect.ValueOf(out).Elem())
+	return nil
 }
