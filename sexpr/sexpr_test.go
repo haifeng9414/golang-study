@@ -119,7 +119,7 @@ func TestUnmarshal(t *testing.T) {
 		want Record
 	}{
 		{
-			`((B t) (F32 2.5) (F64 0) (I ("sexpr.Interface" "5")))`,
+			`((B t) (F32 2.5) (F64 0) (I ("sexpr.Interface" 5)))`,
 			Record{true, 2.5, 0, 0, 0, Interface(5)},
 		},
 		{

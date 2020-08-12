@@ -977,3 +977,243 @@ func main() {
 }
 ```
 - 关于`reflect.Kind`和`reflect.Value`等反射相关的使用，还可以看[序列化和反序列化对象的例子](sexpr/sexpr_test.go)
+- golang中数据类型占用的字节数（64位操作系统）：
+```go
+func main() {
+	var vBool bool
+
+	var vInt8 int8
+	var vInt16 int16
+	var vInt32 int32
+	var vInt64 int64
+
+	var vuInt8 uint8
+	var vuInt16 uint16
+	var vuInt32 uint32
+	var vuInt64 uint64
+
+	var vFloat32 float32
+	var vFloat64 float64
+
+	var vComplex64 complex64
+	var vComplex128 complex128
+
+	var vInt int
+	var vuInt uint
+	var vuIntptr uintptr
+
+	type T struct {}
+	var vT *T
+	var vTArray []T
+
+	var vString string
+
+	var vMap map[string]string
+
+	vFunc := func(){}
+
+	var vChan chan int
+
+	var vInterface interface{}
+
+	fmt.Printf("type: %s, len: %d\n", reflect.TypeOf(vBool).String(), unsafe.Sizeof(vBool))       // 输出：type: bool, len: 1
+	fmt.Printf("type: %s, len: %d\n", reflect.TypeOf(vInt8).String(), unsafe.Sizeof(vInt8))       // 输出：type: int8, len: 1
+	fmt.Printf("type: %s, len: %d\n", reflect.TypeOf(vInt16).String(), unsafe.Sizeof(vInt16))      // 输出：type: int16, len: 2
+	fmt.Printf("type: %s, len: %d\n", reflect.TypeOf(vInt32).String(), unsafe.Sizeof(vInt32))      // 输出：type: int32, len: 4
+	fmt.Printf("type: %s, len: %d\n", reflect.TypeOf(vInt64).String(), unsafe.Sizeof(vInt64))      // 输出：type: int64, len: 8
+	fmt.Printf("type: %s, len: %d\n", reflect.TypeOf(vuInt8).String(), unsafe.Sizeof(vuInt8))      // 输出：type: uint8, len: 1
+	fmt.Printf("type: %s, len: %d\n", reflect.TypeOf(vuInt16).String(), unsafe.Sizeof(vuInt16))     // 输出：type: uint16, len: 2
+	fmt.Printf("type: %s, len: %d\n", reflect.TypeOf(vuInt32).String(), unsafe.Sizeof(vuInt32))     // 输出：type: uint32, len: 4
+	fmt.Printf("type: %s, len: %d\n", reflect.TypeOf(vuInt64).String(), unsafe.Sizeof(vuInt64))     // 输出：type: uint64, len: 8
+	fmt.Printf("type: %s, len: %d\n", reflect.TypeOf(vFloat32).String(), unsafe.Sizeof(vFloat32))    // 输出：type: float32, len: 4
+	fmt.Printf("type: %s, len: %d\n", reflect.TypeOf(vFloat64).String(), unsafe.Sizeof(vFloat64))    // 输出：type: float64, len: 8
+	fmt.Printf("type: %s, len: %d\n", reflect.TypeOf(vComplex64).String(), unsafe.Sizeof(vComplex64))  // 输出：type: complex64, len: 8
+	fmt.Printf("type: %s, len: %d\n", reflect.TypeOf(vComplex128).String(), unsafe.Sizeof(vComplex128)) // 输出：type: complex128, len: 16
+	fmt.Printf("type: %s, len: %d\n", reflect.TypeOf(vInt).String(), unsafe.Sizeof(vInt))        // 输出：type: int, len: 8
+	fmt.Printf("type: %s, len: %d\n", reflect.TypeOf(vuInt).String(), unsafe.Sizeof(vuInt))       // 输出：type: uint, len: 8
+	fmt.Printf("type: %s, len: %d\n", reflect.TypeOf(vuIntptr).String(), unsafe.Sizeof(vuIntptr))    // 输出：type: uintptr, len: 8
+	fmt.Printf("type: %s, len: %d\n", reflect.TypeOf(vT).String(), unsafe.Sizeof(vT))          // 输出：type: *main.T, len: 8
+	fmt.Printf("type: %s, len: %d\n", reflect.TypeOf(vTArray).String(), unsafe.Sizeof(vTArray))     // 输出：type: []main.T, len: 24
+	fmt.Printf("type: %s, len: %d\n", reflect.TypeOf(vString).String(), unsafe.Sizeof(vString))     // 输出：type: string, len: 16
+	fmt.Printf("type: %s, len: %d\n", reflect.TypeOf(vMap).String(), unsafe.Sizeof(vMap))        // 输出：type: map[string]string, len: 8
+	fmt.Printf("type: %s, len: %d\n", reflect.TypeOf(vFunc).String(), unsafe.Sizeof(vFunc))       // 输出：type: func(), len: 8
+	fmt.Printf("type: %s, len: %d\n", reflect.TypeOf(vChan).String(), unsafe.Sizeof(vChan))       // 输出：type: chan int, len: 8
+	fmt.Printf("type: %s, len: %d\n", "interface", unsafe.Sizeof(vInterface))  // 输出：type: interface, len: 16
+}
+```
+- golang也有java中的内存地址偏移量的用法：
+```go
+var x struct {
+	a bool
+	b int16
+	c []int
+}
+
+func main() {
+	// 和 pb := &x.b 等价
+	pb := (*int16)(unsafe.Pointer(uintptr(unsafe.Pointer(&x))+unsafe.Offsetof(x.b)))
+	* pb = 42
+	fmt.Println(x.b) // 输出：42
+}
+```
+
+上面的例子用到的关键的两个类型是`unsafe.Pointer`和`uintptr`，`unsafe.Pointer`是一种指针类型，可以包含任意类型变量的地址。一个普通的
+`*T`类型指针可以被转化为`unsafe.Pointer`类型指针，并且一个`unsafe.Pointer`类型指针也可以被转回普通的指针，被转回普通的指针类型并不需要
+和原始的`*T`类型相同，下面通过将`*float64`类型指针转化为`*uint64`类型指针，可以查看一个浮点数变量的位模式：
+```go
+func main() {
+	fmt.Printf("%#016x\n", Float64bits(1.0)) // 输出：0x3ff0000000000000
+}
+
+func Float64bits(f float64) uint64 { return *(*uint64)(unsafe.Pointer(&f)) }
+```
+
+`uintptr`类型是一个数值（无符号的整型数），可以将`unsafe.Pointer`转化为`uintptr`类型，这相当于将指针变量保存到了一个数值中，可以对这个
+数值做必要的指针数值运算。这种转换虽然也是可逆的，但是将`uintptr`转为`unsafe.Pointer`指针可能会破坏类型系统，因为并不是所有的数字都是有
+效的内存地址。千万不要将`uintptr`类型作为一个临时变量，因为它可能会破坏代码的安全性：
+```go
+var x struct {
+	a bool
+	b int16
+	c []int
+}
+
+func main() {
+	// 用一个表达式操作，是安全的
+	pb := (*int16)(unsafe.Pointer(uintptr(unsafe.Pointer(&x))+unsafe.Offsetof(x.b)))
+	* pb = 42
+	fmt.Println(x.b) // 输出：42
+
+	// 不安全的
+	tmp := uintptr(unsafe.Pointer(&x)) + unsafe.Offsetof(x.b)
+	unsafePb := (*int16)(unsafe.Pointer(tmp))
+	*unsafePb = 43
+	fmt.Println(x.b) // 输出：43
+}
+```
+
+上面的例子没有出错，但是可能有的时候会出错。垃圾回收器会移动一些变量以降低内存碎片等问题。当一个变量被移动，所有的保存改变量旧地址的指针必
+须同时被更新为变量移动后的新地址。从垃圾收集器的视角来看，一个`unsafe.Pointer`是一个指向变量的指针，因此当变量被移动时对应的指针也必须被
+更新，但是`uintptr`类型的临时变量只是一个普通的数字，所以其值不应该被改变。上面错误的代码因为引入一个非指针的临时变量tmp，垃圾收集器无法识
+别这个是一个指向变量x的指针数值。当`(*int16)(unsafe.Pointer(tmp))`执行时，变量x可能已经被转移，这时候临时变量tmp就不再是现在的`&x.b`
+的地址。之后的无效地址空间的赋值语句可能会导致程序崩溃。
+
+还有一个类似的错：
+```go
+// 不安全的
+pT := uintptr(unsafe.Pointer(new(T)))
+```
+
+上面的例子没有指针引用new语句创建的变量，因此该语句执行完成之后，垃圾收集器有权马上回收其内存空间，所以返回的pT可能是无效的地址。
+- `reflect.DeepEqual`函数可以对两个值进行深度相等判断，但是需要注意的是，`reflect.DeepEqual`函数会将一个nil值的map和非nil值但是空的
+map视作不相等，同样nil值的slice和非nil但是空的slice也视作不相等：
+```go
+func main() {
+	got := strings.Split("a:b:c", ":")
+	want := []string{"a", "b", "c"};
+	fmt.Printf("%v\n", reflect.DeepEqual(got, want)) // 输出：true
+
+	var b []string
+	var a []string = nil
+	fmt.Println(reflect.DeepEqual(a, b)) // 输出：false
+
+	var c, d map[string]int = nil, make(map[string]int)
+	fmt.Println(reflect.DeepEqual(c, d)) // 输出：false
+}
+```
+
+下面的例子实现了深度相等判断，并支持nil和空字符串、nil和空map的判断：
+
+[深度相等](equalish/equal_test.go.go)
+- 可以通过iota枚举器创建复杂的值集合：
+```go
+type ByteSize float64
+
+const (
+	_ = iota // 通过赋予空白标识符来忽略第一个值
+	KB ByteSize = 1 << (10 * iota)
+	MB
+	GB
+	TB
+	PB
+	EB
+	ZB
+	YB
+)
+
+func main() {
+	fmt.Println(KB) // 输出：1024
+	fmt.Println(MB) // 输出：1.048576e+06
+	fmt.Println(GB) // 输出：1.073741824e+09
+	fmt.Println(TB) // 输出：1.099511627776e+12
+	fmt.Println(PB) // 输出：1.125899906842624e+15
+	fmt.Println(EB) // 输出：1.152921504606847e+18
+	fmt.Println(ZB) // 输出：1.1805916207174113e+21
+	fmt.Println(YB) // 输出：1.2089258196146292e+24
+
+	b := ByteSize(1000000000)
+	fmt.Println(b) // 输出：953.67MB
+}
+
+func (b ByteSize) String() string {
+	switch {
+	case b >= YB: // ByteSize是浮点数，可以进行比较
+		return fmt.Sprintf("%.2fYB", b/YB)
+	case b >= ZB:
+		return fmt.Sprintf("%.2fZB", b/ZB)
+	case b >= EB:
+		return fmt.Sprintf("%.2fEB", b/EB)
+	case b >= PB:
+		return fmt.Sprintf("%.2fPB", b/PB)
+	case b >= TB:
+		return fmt.Sprintf("%.2fTB", b/TB)
+	case b >= GB:
+		return fmt.Sprintf("%.2fGB", b/GB)
+	case b >= MB:
+		return fmt.Sprintf("%.2fMB", b/MB)
+	case b >= KB:
+		return fmt.Sprintf("%.2fKB", b/KB)
+	}
+	return fmt.Sprintf("%.2fB", b)
+}
+```
+- 每个源文件都可以通过定义自己的无参数init函数（每个文件也可以拥有多个init函数）。只有该**包**中的所有变量都初始化完成后，init函数才会被调用，init函数运行完意味着初始化结束。被导入的包被初始化后当前包才开始初始化。
+```go
+package demo
+
+import "fmt"
+
+var D = 1
+
+func init() {
+	fmt.Printf("init in demo, d: %d\n", D)
+}
+```
+
+```go
+package main
+
+import (
+	"fmt"
+	"golang-study/demo"
+)
+
+var d = 2
+
+func init() {
+	fmt.Printf("init in main, d: %d\n", d)
+}
+
+func main() {
+	fmt.Println(demo.D)
+	fmt.Println("in main")
+    
+    /*
+    输出：
+    init in demo, d: 1
+    init in main, d: 2
+    1
+    in main
+    */
+}
+```
